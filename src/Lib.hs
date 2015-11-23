@@ -6,8 +6,8 @@ module Lib
     , doitall
     ) where
 
-import           Data.Aeson
-import           Data.Aeson.Types
+import  Data.Aeson
+import           Data.Aeson.Types as AT
 import qualified Data.ByteString.Lazy as L
 import qualified Data.HashMap.Strict  as HM
 import qualified Data.Text            as T
@@ -18,7 +18,6 @@ import Data.Maybe
 import Control.Monad
 import Control.Monad.Trans.Maybe
 import Data.Scientific
--- import Control.Monad.Maybe
 
 type MaybeIO = MaybeT IO
 
@@ -26,19 +25,20 @@ data Sheet = Sheet {
                       key :: String
                       , url :: URL
                       , fullJSON :: Value
-                      , parsedData :: [Value]
+                      , parsedData :: [Row]
                    }
 
 data CellType = String !T.Text | Number !Scientific | Bool !Bool | Null
              deriving (Eq, Read, Show)
+
+type Row = [(T.Text, CellType)]
+
 
 doitall :: String -> IO (Maybe Sheet)
 doitall key = runMaybeT $ make key
 
 make :: String -> MaybeIO Sheet
 make keyf = do
-  -- let urlf = formURL keyf
-  -- jsonf <- msum $ getUrlCall $ exportURL urlf
   urlf <- MaybeT $ return $ formURL keyf
   jsonf <- MaybeT $ getUrlCall $ exportURL urlf
   parsed <- MaybeT $ fetch jsonf
@@ -68,7 +68,7 @@ getUrlCall url = do
   return jsonValueForm
 
 
-fetch :: Value -> IO (Maybe [Value])
+fetch :: Value -> IO (Maybe [Row])
 fetch json = return $ parseMaybe parseSheet json
 
 
@@ -81,7 +81,7 @@ fetch json = return $ parseMaybe parseSheet json
 --                   Nothing -> Nothing
 --   return parsed
 
-parseSheet :: Value -> Parser [Value]
+parseSheet :: Value -> Parser [Row]
 parseSheet = withObject "value" $ \obj -> do
     feed <- obj .: "feed"
     entry <- feed .: "entry"
@@ -89,14 +89,17 @@ parseSheet = withObject "value" $ \obj -> do
 
     let parseRows = withObject "object" $ \obj ->do
                       -- cols <- getColumnNames entry
-                      let makePairs :: T.Text -> Parser (T.Text, Value)
+                      let makePairs :: T.Text -> Parser (T.Text, CellType)
                           makePairs key = do
                                           valObject <- obj .: key
-                                          val <- valObject .: "$t"
-                                          return (T.drop 4 key, val)
-                      currRow <- mapM makePairs columns
-                      let consObj = object currRow
-                      return consObj
+                                          val <- (valObject .: "$t") :: Parser Value
+                                          let cell = case val of
+                                                        AT.String x -> Lib.String x
+                                                        AT.Bool b -> Lib.Bool b
+                                                        AT.Number n -> Lib.Number n
+                                                        _ -> Lib.Null
+                                          return (T.drop 4 key, cell)
+                      mapM makePairs columns
 
     let parseEntry = withArray "array" $ \arr -> return $ map parseRows (V.toList arr)
     rows <- parseEntry entry
