@@ -3,11 +3,11 @@ module Lib
     (
       Sheet
     , Row (row)
-    , deleteRow
+    , remove
     , initialize
     , getRows
-    , addRow
-    , updateRow
+    , insert
+    , update
     , CellType (..)
     ) where
 
@@ -82,7 +82,7 @@ makexmlrow (key, value) = do
                     Lib.Bool b -> show b
   unode ("gsx:" ++ T.unpack key) valstring
 
--- Create xml string from list of key value tuples used for addRow method
+-- Create xml string from list of key value tuples used for insert method
 makexml :: [(T.Text, CellType)] -> Element
 makexml rawRows = add_attrs [xmlns, xmlnsgsx] $ unode "entry" $ map makexmlrow rawRows
 
@@ -101,8 +101,8 @@ isEqualLength :: [a] -> [b] -> Bool
 isEqualLength x y = length x == length y
 
 -- Adds a new row to google sheet after validation of data to be inserted
---addRow :: [(T.Text, CellType)] -> Sheet -> IO (Maybe Status)
-addRow rawRow sheet =do
+--insert :: [(T.Text, CellType)] -> Sheet -> IO (Maybe Status)
+insert rawRow sheet =do
   let cols = map (T.drop 4) $ columns sheet
   if not (isEqualLength rawRow cols && isvalid rawRow cols)
     then do
@@ -123,8 +123,8 @@ getRows sheet = do
     Just val -> parseSheetJson val
     Nothing -> return Nothing
 
-updateRow :: Sheet -> Row -> [(T.Text, CellType)] -> IO (Maybe Status)
-updateRow sheet fromRow toRow = do
+update :: Sheet -> Row -> [(T.Text, CellType)] -> IO (Maybe Status)
+update sheet fromRow toRow = do
   -- print "================================update Row==================================="
   puturl <- runMaybeT $ do
      jsonValueForm <- MaybeT $ getValue (T.unpack (rowid fromRow) ++ "?alt=json") (client sheet)
@@ -147,8 +147,8 @@ updateRow sheet fromRow toRow = do
     _ -> return Nothing
 
 -- Used to send a delete request to the Google Sheet.
-deleteRow :: Sheet -> Row -> IO ()
-deleteRow sheet r = do
+remove :: Sheet -> Row -> IO ()
+remove sheet r = do
   let url = rowid r
   -- print $ T.unpack url
   status <- delete (T.unpack url) (client sheet)

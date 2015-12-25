@@ -56,7 +56,8 @@ post url client postData = do
                   , requestBody = RequestBodyLBS pd
                   }
   -- print req
-  res <- withManager $ httpLbs req
+  manager <- newManager tlsManagerSettings
+  res <- httpLbs req manager
   -- print  res
   return $ responseStatus  res
 
@@ -75,6 +76,7 @@ put url client postData = do
                   , requestBody = RequestBodyLBS pd
                   }
   -- print req
-  res <- withManager $ httpLbs req
+  manager <- newManager tlsManagerSettings
+  res <- httpLbs req manager
   -- print  res
   return $ responseStatus  res
