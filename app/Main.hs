@@ -2,12 +2,6 @@ module Main where
 {-# LANGUAGE OverloadedStrings #-}
 
 import Lib
-import Network.HTTP.Conduit
-import qualified Data.ByteString.Lazy as L
-import Data.Aeson
-import Data.Aeson.Types
-import Network.URL
-import Control.Applicative    ((<$>), (<*>))
 import qualified Data.Text                 as T
 
 -- clientid = "1086783968140-bupmbbqo8chsm2tej5ldgfci496a1lvr.apps.googleusercontent.com"
@@ -31,10 +25,12 @@ main = do
       Just sheet -> do
          rows <- getRows sheet
         --  print rows
-         status <- addRow dd sheet
+        --  status <- addRow dd sheet
         --  print status
-         return ()
-        --  case rows of
-        --    Just rs -> deleteRow sheet (head rs)
-        --    Nothing -> putStrLn "Nothing_there"
+        --  return ()
+         case rows of
+           Just rs -> do
+             status <- updateRow sheet (head rs) dd
+             print status
+           Nothing -> putStrLn "Nothing_there"
       Nothing -> putStrLn "Nothing_here"

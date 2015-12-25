@@ -4,6 +4,7 @@ module GoogleRequest
       get
     , delete
     , post
+    , put
   )where
 
 import Network.HTTP.Conduit
@@ -12,6 +13,7 @@ import Network.Google.OAuth2
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as L
+
 
 
 scopes = ["https://spreadsheets.google.com/feeds"]
@@ -40,29 +42,39 @@ delete url client = do
   res <- httpLbs (authorize token delReq) manager
   return $ responseStatus  res
 
--- post::String -> OAuth2Client ->String -> IO Status
--- $ "<?xml version='1.0' encoding='utf-8'?>" ++,
---("Content-Length",B.toLazyByteString $ B.int8 $ length postData)
 post url client postData = do
-  print "inside post request"
-  -- print postData
   token <- createToken client
   request <- parseUrl url
-
-  let pd = B.toLazyByteString $ B.stringUtf8  $ "<?xml version='1.0' encoding='utf-8'?>" ++ postData
-  print pd
-  print url
+  let pd = B.toLazyByteString $ B.stringUtf8 postData
+  -- print pd
+  -- print url
   let req = request{
                     method = "POST"
-                  , requestHeaders = [("Content-Type", "application/atom+xml"),
-                                      ("Content-Length", B8.pack $ show $ length $ "<?xml version='1.0' encoding='utf-8'?>" ++ postData)]
+                  , requestHeaders = [("content-type", "application/atom+xml"),
+                                      ("Gdata-version", "1.0"),
+                                      (hAuthorization, B8.pack $ "Bearer " ++ token)]
                   , requestBody = RequestBodyLBS pd
                   }
-  let postReq = authorize token postReq
-  -- print postReq
-  -- manager <- newManager tlsManagerSettings
-  print "sending request"
+  -- print req
   res <- withManager $ httpLbs req
-  -- res <- httpLbs postReq manager
-  print  res
+  -- print  res
+  return $ responseStatus  res
+
+
+put url client postData = do
+  token <- createToken client
+  request <- parseUrl url
+  let pd = B.toLazyByteString $ B.stringUtf8 postData
+  -- print pd
+  -- print url
+  let req = request{
+                    method = "PUT"
+                  , requestHeaders = [("content-type", "application/atom+xml"),
+                                      ("Gdata-version", "1.0"),
+                                      (hAuthorization, B8.pack $ "Bearer " ++ token)]
+                  , requestBody = RequestBodyLBS pd
+                  }
+  -- print req
+  res <- withManager $ httpLbs req
+  -- print  res
   return $ responseStatus  res

@@ -7,6 +7,7 @@ module Lib
     , initialize
     , getRows
     , addRow
+    , updateRow
     , CellType (..)
     ) where
 
@@ -14,9 +15,6 @@ import           Control.Monad
 import           Control.Monad.Trans.Maybe
 import           Data.Aeson
 import           Data.Aeson.Types          as AT
--- import qualified Data.ByteString.Lazy      as L
--- import qualified Data.ByteString.Lazy.Char8 as L8
--- import qualified Data.ByteString as L8
 import qualified Data.HashMap.Strict       as HM
 import           Data.Maybe
 import           Data.Scientific
@@ -34,15 +32,13 @@ import           Text.XML.Light.Types
 
 type MaybeIO = MaybeT IO
 
--- type Row = HM.HashMap T.Text CellType
-
 data Row = Row {
                   rowid :: T.Text,
                   row   :: HM.HashMap T.Text CellType
                 }deriving (Eq, Show)
 
 data Sheet = Sheet {
-                        key       :: String
+                        key     :: String
                       , url     :: URL
                       , columns :: [T.Text]
                       , client  :: OAuth2Client
@@ -86,18 +82,27 @@ makexmlrow (key, value) = do
                     Lib.Bool b -> show b
   unode ("gsx:" ++ T.unpack key) valstring
 
-makexml :: [(T.Text, CellType)] -> String
-makexml rawRows = showElement $ add_attrs [xmlns, xmlnsgsx] $ unode "entry" $ map makexmlrow rawRows
+-- Create xml string from list of key value tuples used for addRow method
+makexml :: [(T.Text, CellType)] -> Element
+makexml rawRows = add_attrs [xmlns, xmlnsgsx] $ unode "entry" $ map makexmlrow rawRows
 
-addRow :: [(T.Text, CellType)] -> Sheet -> IO (Maybe Status)
+
+makeUpdateRowXml ::String -> [(T.Text, CellType)] -> String
+makeUpdateRowXml rowid rawRows = showElement $ add_attrs [xmlns, xmlnsgsx] $ unode "entry" $ unode "id" rowid : map makexmlrow rawRows
+
+makeAddRowXml :: [(T.Text, CellType)] -> String
+makeAddRowXml rawRows = showElement $ makexml rawRows
+
+isvalid :: [(T.Text, CellType)] -> [T.Text] -> Bool
+isvalid [] _ = True
+isvalid ((first,_):xs) cols = elem first cols && isvalid xs cols
+
+isEqualLength :: [a] -> [b] -> Bool
+isEqualLength x y = length x == length y
+
+-- Adds a new row to google sheet after validation of data to be inserted
+--addRow :: [(T.Text, CellType)] -> Sheet -> IO (Maybe Status)
 addRow rawRow sheet =do
-  let isvalid :: [(T.Text, CellType)] -> [T.Text] -> Bool
-      isvalid [] _ = True
-      isvalid ((first,_):xs) cols = elem first cols && isvalid xs cols
-
-  let isEqualLength :: [a] -> [b] -> Bool
-      isEqualLength x y = length x == length y
-
   let cols = map (T.drop 4) $ columns sheet
   if not (isEqualLength rawRow cols && isvalid rawRow cols)
     then do
@@ -105,12 +110,11 @@ addRow rawRow sheet =do
       print rawRow
       return Nothing
     else do
-      let xml = makexml rawRow
-      -- print $ L8.pack xml
+      let xml = makeAddRowXml rawRow
       status <- post (formPostURL ( key sheet)) (client sheet) xml
       return $ Just status
 
-
+-- Used to fetch rows from the google sheet and format them into list of Rows
 getRows :: Sheet -> IO (Maybe [Row])
 getRows sheet = do
   jsonValueForm <- getValue (exportURL ( url sheet)) (client sheet)
@@ -119,7 +123,30 @@ getRows sheet = do
     Just val -> parseSheetJson val
     Nothing -> return Nothing
 
+updateRow :: Sheet -> Row -> [(T.Text, CellType)] -> IO (Maybe Status)
+updateRow sheet fromRow toRow = do
+  -- print "================================update Row==================================="
+  puturl <- runMaybeT $ do
+     jsonValueForm <- MaybeT $ getValue (T.unpack (rowid fromRow) ++ "?alt=json") (client sheet)
+     MaybeT $ parseEditURL jsonValueForm
+  -- print "here in update Row"
+  print puturl
+  case puturl of
+    Just purl -> do
+      let cols = map (T.drop 4) $ columns sheet
+      if not (isEqualLength toRow cols && isvalid toRow cols)
+        then do
+          print  cols
+          print toRow
+          return Nothing
+        else do
+          let xml = makeUpdateRowXml (T.unpack $ rowid fromRow) toRow
+          print xml
+          status <- put purl (client sheet) xml
+          return $ Just status
+    _ -> return Nothing
 
+-- Used to send a delete request to the Google Sheet.
 deleteRow :: Sheet -> Row -> IO ()
 deleteRow sheet r = do
   let url = rowid r
@@ -139,48 +166,68 @@ formURL key = do
   url <- importURL $ T.unpack sUrl
   return $ add_param url ("alt","json")
 
+-- forms the post URL without json parameter.
 formPostURL :: String -> String
 formPostURL key = T.unpack $ T.replace (T.pack "${key}") (T.pack key) (T.pack urlTemplate)
 
-
+-- Does a get request to fetch JSON and then converts it into Aeson Value type
 getValue url client = do
   urlJSON <- get url client
   let jsonValueForm = decode urlJSON:: Maybe Value
   return jsonValueForm
 
 
+parseEditURL :: Value -> IO (Maybe String)
+parseEditURL json =
+   case parseMaybe parseRow json of
+      Just (AT.String url) ->return $ Just $ T.unpack url
+      _ ->return Nothing
+    where parseRow = withObject "value" $ \obj -> do
+                      entry <- obj .: "entry"
+                      link <- entry .: "link" :: Parser Value
+                      let isEdit = withObject "object" $ \ rowobj ->do
+                                 rel <- rowobj .: "rel" :: Parser Value
+                                 return $ rel == AT.String "edit"
+                      let parseURLSObjs = withArray "array" $ \arr -> filterM isEdit (V.toList arr)
+                      editurlobjlist <- parseURLSObjs link
+                      let editurlobj = head editurlobjlist
+                      let extract = withObject "object" $ \ obj-> obj .: "href" :: Parser Value
+                      extract editurlobj
+
+-- Converts the Aeson Value of the sheet to list of rows.
+-- Parses the json tree and iterates through it to produce the list.
 parseSheetJson :: Value -> IO (Maybe [Row])
 parseSheetJson json = return $ parseMaybe parseSheet json
                         where parseSheet = withObject "value" $ \obj -> do
-                                  feed <- obj .: "feed"
-                                  entry <- feed .: "entry"
-                                  columns <- getColumnHelper entry
+                                feed <- obj .: "feed"
+                                entry <- feed .: "entry"
+                                columns <- getColumnHelper entry
 
-                                  let parseRows = withObject "object" $ \obj ->do
-                                                    -- cols <- getColumnNames entry
-                                                    let makePairs :: T.Text -> Parser (T.Text, CellType)
-                                                        makePairs key = do
-                                                                        valObject <- obj .: key
-                                                                        val <- (valObject .: "$t") :: Parser Value
-                                                                        let cell = case val of
-                                                                                      AT.String x -> Lib.String x
-                                                                                      AT.Bool b -> Lib.Bool b
-                                                                                      AT.Number n -> Lib.Number n
-                                                                                      _ -> Lib.Null
-                                                                        return (T.drop 4 key, cell)
-                                                    currRow <- mapM makePairs columns
-                                                    linkId <- obj .: "id"
-                                                    link <- (linkId .: "$t" ) :: Parser Value
-                                                    return Row {
-                                                                    rowid =  case link of
-                                                                                AT.String u -> u
-                                                                                _ -> T.pack "",
-                                                                    row = HM.fromList currRow
-                                                                  }
+                                let parseRows = withObject "object" $ \obj ->do
+                                        -- cols <- getColumnNames entry
+                                        let makePairs :: T.Text -> Parser (T.Text, CellType)
+                                            makePairs key = do
+                                              valObject <- obj .: key
+                                              val <- (valObject .: "$t") :: Parser Value
+                                              let cell = case val of
+                                                          AT.String x -> Lib.String x
+                                                          AT.Bool b -> Lib.Bool b
+                                                          AT.Number n -> Lib.Number n
+                                                          _ -> Lib.Null
+                                              return (T.drop 4 key, cell)
+                                        currRow <- mapM makePairs columns
+                                        linkId <- obj .: "id"
+                                        link <- (linkId .: "$t" ) :: Parser Value
+                                        return Row {
+                                                    rowid =  case link of
+                                                                AT.String u -> u
+                                                                _ -> T.pack "",
+                                                    row = HM.fromList currRow
+                                                      }
 
-                                  let parseEntry = withArray "array" $ \arr -> return $ map parseRows (V.toList arr)
-                                  rows <- parseEntry entry
-                                  sequence rows
+                                let parseEntry = withArray "array" $ \arr -> return $ map parseRows (V.toList arr)
+                                rows <- parseEntry entry
+                                sequence rows
 
 
 getColumns :: Value -> Parser [T.Text]
