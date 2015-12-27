@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Lib
-  Other-Modules:       GoogleRequest
+  Other-Modules:       GoogleRequest, SheetTypes, SheetDB
   build-depends:       base >= 4.7 && < 5
                        , http-conduit
                        , bytestring
@@ -32,7 +32,7 @@ library
                        , google-oauth2
                        , text
                        , xml
-                       , utf8-string
+                       , time
   default-language:    Haskell2010
 
 executable boxes-exe
