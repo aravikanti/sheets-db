@@ -9,6 +9,9 @@
 {-# LANGUAGE UndecidableInstances  #-}
 module SheetDB
   (
+    access
+  , Selection(..),  Query(..), Projector, Limit, Order, query
+  , find, remove, insert, update
 
   ) where
 
@@ -98,6 +101,7 @@ selectorQueryUrl (Gtr colname value) = T.unpack colname ++ " > " ++ show value
 selectorQueryUrl (Gteqr colname value) = T.unpack colname ++ " >= " ++ show value
 selectorQueryUrl (Ltr colname value) = T.unpack colname ++ " < " ++ show value
 selectorQueryUrl (Lteqr colname value) = T.unpack colname ++ " <= " ++ show value
+selectorQueryUrl (Eqr colname value) = T.unpack colname ++ " = " ++ show value
 selectorQueryUrl (And sel1 sel2) = selectorQueryUrl sel1 ++ " and " ++ selectorQueryUrl sel2
 selectorQueryUrl (Or sel1 sel2) = selectorQueryUrl sel1 ++ " or " ++ selectorQueryUrl sel2
 
@@ -110,6 +114,7 @@ find :: Query -> IO (Maybe [Row])
 find q = do
   let sel = selection q
   let spreadsheet = sheet sel
+  print $ makeQueryUrl q
   runMaybeT $ do
     url <- MaybeT $ return $ makeQueryUrl q
     jsonValueForm <-MaybeT $ getJson url (oauth spreadsheet)
@@ -135,6 +140,7 @@ insert rawRow sheet =do
       return Nothing
     else do
       let xml = makexml rawRow
+      print xml
       status <- post (formPostURL ( key sheet)) (oauth sheet) xml
       return $ Just status
 
@@ -148,7 +154,7 @@ update sheet toRow = do
   print puturl
   case puturl of
     Just purl -> do
-      let cols = map (T.drop 4) $ columns sheet
+      let cols = idKey :  columns sheet
       if not (isEqualLength toRow cols && isvalid toRow cols)
         then do
           print  cols
@@ -184,8 +190,10 @@ xmlnsgsx = Attr{
 
 
 makexmlrow :: Cell -> Element
-makexmlrow (key := value) = do
-  let valstring = show value
+makexmlrow (key := v) = do
+  let valstring = case v of
+                    ST.String x -> T.unpack x
+                    _ -> show v
   unode ("gsx:" ++ T.unpack key) valstring
 
 -- Create xml string from list of key value tuples used for insert method
@@ -202,20 +210,19 @@ parseSheetJson json = return $ parseMaybe parseSheet json
             entry <- feed .: "entry"
             columns <- getColumnHelper entry
 
-            let parseRows = withObject "object" $ \obj ->do
-                    -- cols <- getColumnNames entry
+            let parseRows = withObject "object" $ \obj2 ->do
                     let makePairs :: T.Text -> Parser Cell
                         makePairs key = do
-                          valObject <- obj .: key
+                          valObject <- obj2 .: T.append (T.pack "gsx$") key
                           val <- (valObject .: "$t") :: Parser A.Value
                           let cell = case val of
-                                AT.String x -> T.drop 4 key =: x
-                                AT.Bool b -> T.drop 4 key =: b
-                                AT.Number n -> T.drop 4 key =: n
-                                _ -> T.drop 4 key =: (Nothing :: Maybe ST.Value)
+                                AT.String x -> key =: x
+                                AT.Bool b -> key =: b
+                                AT.Number n -> key =: n
+                                _ -> key =: (Nothing :: Maybe ST.Value)
                           return cell
                     currRow <- mapM makePairs columns
-                    linkId <- obj .: "id"
+                    linkId <- obj2 .: "id"
                     link <- (linkId .: "$t" ) :: Parser A.Value
                     let rowid =  case link of
                                 AT.String u -> idKey =: u
@@ -223,7 +230,7 @@ parseSheetJson json = return $ parseMaybe parseSheet json
                     return $ rowid : currRow
 
             let parseEntry = withArray "array" $ \arr -> return $ map parseRows (V.toList arr)
-            rows <- parseEntry entry
+            rows <-parseEntry entry
             sequence rows
 
 parseEditURL :: A.Value -> IO (Maybe String)
@@ -259,6 +266,7 @@ formPostURL key = T.unpack $ T.replace (T.pack "${key}") (T.pack key) (T.pack ur
 getJson url client = do
  urlJSON <- get url client
  let jsonValueForm = A.decode urlJSON:: Maybe A.Value
+ -- print jsonValueForm
  return jsonValueForm
 
 

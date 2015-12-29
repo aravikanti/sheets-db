@@ -15,8 +15,8 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib
-  Other-Modules:       GoogleRequest, SheetTypes, SheetDB
+  exposed-modules:     SheetDB, SheetTypes
+  Other-Modules:       GoogleRequest, Lib
   build-depends:       base >= 4.7 && < 5
                        , http-conduit
                        , bytestring

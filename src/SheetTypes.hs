@@ -11,7 +11,8 @@ module SheetTypes
   ColName,
   Value(..), Val(..), fval, cast, typed, typeOfVal,
   Sheet(..),
-  Selector(..), (~>),(~>=), (~<=), (~<), (~=), (~&&~), (~||~)
+  Selector(..), (~>),(~>=), (~<=), (~<), (~=), (~&&~), (~||~),
+  p
   ) where
 
 import           Control.Monad.Identity
@@ -59,6 +60,8 @@ exclude keys = filter (\(k := _) -> notElem k keys)
 
 type ColName = T.Text
 -- ^ The name of a Cell
+p = T.pack
+infix 0 :=, =:, =?
 
 data Cell = (:=) {colname :: !ColName, value :: Value}  deriving (Typeable, Eq)
 -- colname is label
@@ -74,13 +77,12 @@ k =? ma = maybeToList (fmap (k =:) ma)
 instance Show Cell where
     showsPrec d (k := v) = showParen (d > 0) $ showString (' ' : T.unpack k) . showString ": " . showsPrec 1 v
 
--- data CellType = String !T.Text | Number !Scientific | Bool !Bool | Null
---              deriving (Eq, Read, Show)
+
 data Value =
     Number !Scientific |
     String !T.Text |
-    Bool Bool |
-    UTC UTCTime |
+    Bool !Bool |
+    UTC !UTCTime |
     Null
   deriving (Typeable, Eq)
 
@@ -148,6 +150,16 @@ instance Val Scientific where
     val = Number
     cast' (Number x) = Just x
     cast' _ = Nothing
+
+instance Val Float where
+  val = Number . fromFloatDigits
+  cast' (Number x) = Just $ toRealFloat x
+  cast' _ = Nothing
+
+instance Val Double where
+  val = Number . fromFloatDigits
+  cast' (Number x) = Just $ toRealFloat x
+  cast' _ = Nothing
 
 instance Val Bool where
   val = Bool
