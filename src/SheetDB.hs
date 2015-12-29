@@ -12,6 +12,7 @@ module SheetDB
     access
   , Selection(..),  Query(..), Projector, Limit, Order, query
   , find, remove, insert, update
+  , Selector(..), (~>),(~>=), (~<=), (~<), (~=), (~&&~), (~||~)
 
   ) where
 
@@ -53,19 +54,39 @@ access keyf clientId clientSecret = runMaybeT $ do
 
 -- * Selection
 
+data Selector = Gtr ColName ST.Value
+              | Gteqr ColName ST.Value
+              | Ltr ColName ST.Value
+              | Lteqr ColName ST.Value
+              | Eqr ColName ST.Value
+              | And Selector Selector
+              | Or Selector Selector
+              | Empty
+                deriving (Show, Eq)
+
+(~>) :: (Val v) => ColName -> v -> Selector
+k ~> v = Gtr k (val v)
+
+(~>=) :: (Val v) => ColName -> v -> Selector
+k ~>= v = Gteqr k (val v)
+
+(~<) :: (Val v) => ColName -> v -> Selector
+k ~< v = Ltr k (val v)
+
+(~<=) :: (Val v) => ColName -> v -> Selector
+k ~<= v = Lteqr k (val v)
+
+(~=) :: (Val v) => ColName -> v -> Selector
+k ~= v = Eqr k (val v)
+
+(~&&~) :: Selector -> Selector -> Selector
+s ~&&~ t = And s t
+
+(~||~) :: Selector -> Selector -> Selector
+s ~||~ t = Or s t
+
 data Selection = Select {selector :: Selector, sheet :: Sheet}  deriving (Show, Eq)
--- ^ Selects documents in collection that match selector
-
-
-class Select aQueryOrSelection where
-  select :: Selector -> Sheet -> aQueryOrSelection
-  -- ^ 'Query' or 'Selection' that selects documents in collection that match selector. The choice of type depends on use, for example, in @find (select sel col)@ it is a Query, and in @delete (select sel col)@ it is a Selection.
-
-instance Select Selection where
-  select = Select
-
-instance Select Query where
-  select = query
+-- ^ Selects rows in spreadsheet that match selector
 
 -- ** Query
 
@@ -76,7 +97,6 @@ data Query = Query {
   skip      :: Int,  -- ^ Number of initial matching documents to skip. Default = 0
   limit     :: Limit, -- ^ Maximum number of documents to return, 0 = no limit. Default = 0
   sort      :: Order  -- ^ Sort results by this order, [] = no sort. Default = []
-  --hint :: Order  -- ^ Force MongoDB to use this index, [] = no hint. Default = []
   } deriving (Show, Eq)
 
 
@@ -130,7 +150,7 @@ remove sheet r = do
   -- print status
 
 -- Adds a new row to google sheet after validation of data to be inserted
---insert :: Row -> Sheet -> IO (Maybe Status)
+insert :: Row -> Sheet -> IO (Maybe Status)
 insert rawRow sheet =do
   let cols = columns sheet
   if not (isEqualLength rawRow cols && isvalid rawRow cols)

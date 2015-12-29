@@ -11,7 +11,6 @@ module SheetTypes
   ColName,
   Value(..), Val(..), fval, cast, typed, typeOfVal,
   Sheet(..),
-  Selector(..), (~>),(~>=), (~<=), (~<), (~=), (~&&~), (~||~),
   p
   ) where
 
@@ -89,37 +88,7 @@ data Value =
 instance Show Value where
     showsPrec d = fval (showsPrec d)
 
--- data Selector = gtr Value | ltr Value
-data Selector = Gtr ColName Value
-              | Gteqr ColName Value
-              | Ltr ColName Value
-              | Lteqr ColName Value
-              | Eqr ColName Value
-              | And Selector Selector
-              | Or Selector Selector
-              | Empty
-                deriving (Show, Eq)
 
-(~>) :: (Val v) => ColName -> v -> Selector
-k ~> v = Gtr k (val v)
-
-(~>=) :: (Val v) => ColName -> v -> Selector
-k ~>= v = Gteqr k (val v)
-
-(~<) :: (Val v) => ColName -> v -> Selector
-k ~< v = Ltr k (val v)
-
-(~<=) :: (Val v) => ColName -> v -> Selector
-k ~<= v = Lteqr k (val v)
-
-(~=) :: (Val v) => ColName -> v -> Selector
-k ~= v = Eqr k (val v)
-
-(~&&~) :: Selector -> Selector -> Selector
-s ~&&~ t = And s t
-
-(~||~) :: Selector -> Selector -> Selector
-s ~||~ t = Or s t
 
 fval :: (forall a . (Val a) => a -> b) -> Value -> b
 -- ^ Apply generic function to typed value
