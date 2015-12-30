@@ -173,6 +173,7 @@ typeOfVal = fval typeOf
 
 data Sheet = Sheet {
                         key     :: String
+                      , worksheetId :: String
                       , url     :: String
                       , columns :: [ColName]
                       , cid  :: String

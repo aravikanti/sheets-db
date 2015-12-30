@@ -32,19 +32,20 @@ import           SheetTypes                as ST
 import           Text.XML.Light
 import           Text.XML.Light.Types
 
-urlTemplate = "https://spreadsheets.google.com/feeds/list/${key}/od6/private/full" :: String
+urlTemplate = "https://spreadsheets.google.com/feeds/list/${key}/${worksheetid}/private/full" :: String
 
 oauth :: Sheet -> OAuth2Client
 oauth sheet = OAuth2Client (cid sheet) (csecret sheet)
 
-access :: String -> String -> String -> IO (Maybe Sheet)
-access keyf clientId clientSecret = runMaybeT $ do
+access :: String -> String -> String -> String -> IO (Maybe Sheet)
+access keyf worksheetidf clientId clientSecret = runMaybeT $ do
   let clientf = OAuth2Client clientId clientSecret
-  urlf <- MaybeT $ return $ formURL keyf [("alt","json")]
+  urlf <- MaybeT $ return $ formURL keyf worksheetidf [("alt","json")]
   jsonf <- MaybeT $ getJson (exportURL urlf) clientf
   cols <- MaybeT $ return $ AT.parseMaybe getColumns jsonf
   return Sheet {
                   key = keyf,
+                  worksheetId = worksheetidf,
                   url = exportURL urlf,
                   columns = cols,
                   cid = clientId,
@@ -111,9 +112,10 @@ query sel sheet = Query (Select sel sheet) [] 0 0 []
 makeQueryUrl :: Query -> Maybe String
 makeQueryUrl q = do
   let spreadsheet = sheet $ selection q
+  let partUrl = formURL (key spreadsheet ) (worksheetId spreadsheet)
   url <- case selector $ selection q of
-    Empty -> formURL (key spreadsheet ) [("alt","json")]
-    _ -> formURL (key spreadsheet ) [("alt","json"),("sq", selectorQueryUrl $ selector $ selection q )]
+    Empty -> partUrl [("alt","json")]
+    _ -> partUrl [("alt","json"),("sq", selectorQueryUrl $ selector $ selection q )]
   return $ exportURL url
 
 selectorQueryUrl :: Selector -> String
@@ -161,8 +163,12 @@ insert rawRow sheet =do
     else do
       let xml = makexml rawRow
       print xml
-      status <- post (formPostURL ( key sheet)) (oauth sheet) xml
-      return $ Just status
+      let maybeurl = formURL ( key sheet) (worksheetId sheet) []
+      case maybeurl of
+        Just url ->do
+          status <- post (exportURL url) (oauth sheet) xml
+          return $ Just status
+        Nothing -> return Nothing
 
 update :: Sheet -> Row -> IO (Maybe Status)
 update sheet toRow = do
@@ -182,7 +188,7 @@ update sheet toRow = do
           return Nothing
         else do
           let xml = makexml toRow
-          print xml
+          -- print xml
           status <- put purl (oauth sheet) xml
           return $ Just status
     _ -> return Nothing
@@ -270,18 +276,20 @@ parseEditURL json =
                       let extract = withObject "object" $ \ obj-> obj .: "href" :: Parser A.Value
                       extract editurlobj
 
-formURL :: String -> [(String,String)] -> Maybe URL
-formURL key params = do
+formURL :: String -> String-> [(String,String)] -> Maybe URL
+formURL key worksheetid params = do
  -- do concatenation to make url
  let template = T.pack urlTemplate
  let keyPattern = T.pack "${key}"
- let sUrl = T.replace keyPattern (T.pack key) template
- url <- importURL $ T.unpack sUrl
- return $ foldl add_param url params -- ("alt","json")
+ let worksheetidPattern = T.pack "${worksheetid}"
+ let keyUrl = T.replace keyPattern (T.pack key) template
+ let keyWorksheetUrl = T.replace worksheetidPattern (T.pack worksheetid) keyUrl
+ url <- importURL $ T.unpack keyWorksheetUrl
+ return $ foldl add_param url params
 
  -- forms the post URL without json parameter.
-formPostURL :: String -> String
-formPostURL key = T.unpack $ T.replace (T.pack "${key}") (T.pack key) (T.pack urlTemplate)
+formPostURL :: String -> String -> String
+formPostURL key worksheetid = T.unpack $ T.replace (T.pack "${key}") (T.pack key) (T.pack urlTemplate)
 
 getJson url client = do
  urlJSON <- get url client

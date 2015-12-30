@@ -33,6 +33,7 @@ library
                        , text
                        , xml
                        , time
+                       , resourcet
   default-language:    Haskell2010
 
 executable boxes-exe
