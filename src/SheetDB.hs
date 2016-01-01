@@ -10,10 +10,9 @@
 module SheetDB
   (
     access
-  , Selection(..),  Query(..), Projector, Limit, Order, query
+  , Selection(..),  Query(..), Order, query
   , find, remove, insert, update
   , Selector(..), (~>),(~>=), (~<=), (~<), (~=), (~&&~), (~||~)
-
   ) where
 
 import           Control.Monad             (filterM)
@@ -26,7 +25,7 @@ import qualified Data.Text                 as T
 import qualified Data.Vector               as V
 import           GoogleRequest
 import           Network.Google.OAuth2
-import           Network.HTTP.Types        (Status, urlEncode)
+import           Network.HTTP.Types        hiding (Query)
 import           Network.URL
 import           SheetTypes                as ST
 import           Text.XML.Light
@@ -46,14 +45,14 @@ access keyf worksheetidf clientId clientSecret = runMaybeT $ do
   return Sheet {
                   key = keyf,
                   worksheetId = worksheetidf,
-                  url = exportURL urlf,
                   columns = cols,
                   cid = clientId,
                   csecret = clientSecret
                }
 
-
--- * Selection
+data Outcome = Success | Failure
+                  deriving (Show, Eq)
+-- Selection
 
 data Selector = Gtr ColName ST.Value
               | Gteqr ColName ST.Value
@@ -87,37 +86,43 @@ s ~&&~ t = And s t
 s ~||~ t = Or s t
 
 data Selection = Select {selector :: Selector, sheet :: Sheet}  deriving (Show, Eq)
--- ^ Selects rows in spreadsheet that match selector
+-- Selects rows in spreadsheet that match selector
 
--- ** Query
+-- Query
 
--- | Use 'select' to create a basic query with defaults, then modify if desired. For example, @(select sel col) {limit = 10}@
+-- Use 'Select' to create a basic query with defaults, then modify if desired. For example, @(Select sel sheet) {limit = 10}@
 data Query = Query {
   selection :: Selection,
-  project   :: Projector,  -- ^ \[\] = all fields. Default = []
   skip      :: Int,  -- ^ Number of initial matching documents to skip. Default = 0
-  limit     :: Limit, -- ^ Maximum number of documents to return, 0 = no limit. Default = 0
+  limit     :: Int, -- ^ Maximum number of documents to return, 0 = no limit. Default = 0
   sort      :: Order  -- ^ Sort results by this order, [] = no sort. Default = []
   } deriving (Show, Eq)
 
 
-type Projector = Row
-type Limit = Int
-type Order = Row
+data Order = Order {
+  colname :: ColName,
+  reverse :: Bool
+  } | NoOrder deriving (Show, Eq)
+
 
 query :: Selector -> Sheet -> Query
-query sel sheet = Query (Select sel sheet) [] 0 0 []
+query sel sheet = Query (Select sel sheet) 0 0 NoOrder
 
 
 makeQueryUrl :: Query -> Maybe String
 makeQueryUrl q = do
   let spreadsheet = sheet $ selection q
-  let partUrl = formURL (key spreadsheet ) (worksheetId spreadsheet)
-  url <- case selector $ selection q of
-    Empty -> partUrl [("alt","json")]
-    _ -> partUrl [("alt","json"),("sq", selectorQueryUrl $ selector $ selection q )]
+  let order = sort q
+  let param1 = [("alt","json")]::[(String,String)]
+  let selectString = selectorQueryUrl $ selector $ selection q
+  let param2 = if  selectString == "" then  param1 else ("sq", selectString ) : param1
+  let params = case order of
+                NoOrder -> param2
+                Order col rev -> param2 ++ [("orderby",T.unpack col),("reverse", show rev)]
+  url <- formURL (key spreadsheet ) (worksheetId spreadsheet) params
   return $ exportURL url
 
+-- Converts Selector to String. example: Gtr "age" 25 -> age > 25
 selectorQueryUrl :: Selector -> String
 selectorQueryUrl (Gtr colname value) = T.unpack colname ++ " > " ++ show value
 selectorQueryUrl (Gteqr colname value) = T.unpack colname ++ " >= " ++ show value
@@ -126,51 +131,74 @@ selectorQueryUrl (Lteqr colname value) = T.unpack colname ++ " <= " ++ show valu
 selectorQueryUrl (Eqr colname value) = T.unpack colname ++ " = " ++ show value
 selectorQueryUrl (And sel1 sel2) = selectorQueryUrl sel1 ++ " and " ++ selectorQueryUrl sel2
 selectorQueryUrl (Or sel1 sel2) = selectorQueryUrl sel1 ++ " or " ++ selectorQueryUrl sel2
+selectorQueryUrl Empty = ""
 
+-- Encodes Query parameter
 encodeSelectorQueryUrl :: String -> String
 encodeSelectorQueryUrl q = B8.unpack $ urlEncode True $ B8.pack q
 
 idKey = T.pack "id"
 
-find :: Query -> IO (Maybe [Row])
+validate :: Query -> Bool
+validate q = skip q >= 0 && limit q >= 0
+
+find :: Query -> IO (Either String [Row])
 find q = do
   let sel = selection q
-  let spreadsheet = sheet sel
-  print $ makeQueryUrl q
-  runMaybeT $ do
-    url <- MaybeT $ return $ makeQueryUrl q
-    jsonValueForm <-MaybeT $ getJson url (oauth spreadsheet)
-    MaybeT $ parseSheetJson jsonValueForm
+  if validate q
+    then do
+      let spreadsheet = sheet sel
+      -- print $ makeQueryUrl q
+      mayberows <- runMaybeT $ do
+        url <- MaybeT $ return $ makeQueryUrl q
+        jsonValueForm <-MaybeT $ getJson url (oauth spreadsheet)
+        MaybeT $ parseSheetJson jsonValueForm
+      case mayberows of
+        Just rs ->do
+          let rows
+                | skip q == 0 && limit q == 0 = rs
+                | skip q > 0 && limit q == 0 = drop (skip q) rs
+                | skip q == 0 && limit q > 0 = take (limit q) rs
+                | otherwise = take (limit q) $ drop (skip q) rs
+          return $ Right rows
+        Nothing -> return $ Left "Parse error or sheet data error."
+    else
+      return $ Left "Query skip or Query limit may be invalid."
 
 
 -- Used to send a delete request to the Google Sheet.
-remove :: Sheet -> Row -> IO Status
+remove :: Sheet -> Row -> IO Outcome
 remove sheet r = do
   let url = at idKey r
   -- print $ T.unpack url
-  delete (T.unpack url) (oauth sheet)
+  status<-delete (T.unpack url) (oauth sheet)
+  if status == status200 then return SheetDB.Success
+    else return SheetDB.Failure
+
   -- print status
 
 -- Adds a new row to google sheet after validation of data to be inserted
-insert :: Row -> Sheet -> IO (Maybe Status)
+insert :: Row -> Sheet -> IO Outcome
 insert rawRow sheet =do
   let cols = columns sheet
   if not (isEqualLength rawRow cols && isvalid rawRow cols)
     then
       -- print  cols
       -- print rawRow
-      return Nothing
+      return SheetDB.Failure
     else do
-      let xml = makexml rawRow
+      let xml = rowToXml rawRow
       print xml
       let maybeurl = formURL ( key sheet) (worksheetId sheet) []
       case maybeurl of
         Just url ->do
           status <- post (exportURL url) (oauth sheet) xml
-          return $ Just status
-        Nothing -> return Nothing
+          if status == status201
+            then return SheetDB.Success
+            else return SheetDB.Failure
+        Nothing -> return SheetDB.Failure
 
-update :: Sheet -> Row -> IO (Maybe Status)
+update :: Sheet -> Row -> IO Outcome
 update sheet toRow = do
   -- print "================================update Row==================================="
   puturl <- runMaybeT $ do
@@ -185,23 +213,24 @@ update sheet toRow = do
         then do
           print  cols
           print toRow
-          return Nothing
+          return SheetDB.Failure
         else do
-          let xml = makexml toRow
+          let xml = rowToXml toRow
           -- print xml
           status <- put purl (oauth sheet) xml
-          return $ Just status
-    _ -> return Nothing
+          if status == status200
+            then return SheetDB.Success
+            else return SheetDB.Failure
+    _ -> return SheetDB.Failure
 
 
-
+-- Checks if Row has all the Columns of the corresponding spreadsheet
 isvalid :: Row -> [ColName] -> Bool
 isvalid [] _ = True
 isvalid ((key := _):xs) cols = elem key cols && isvalid xs cols
 
 isEqualLength :: [a] -> [b] -> Bool
 isEqualLength x y = length x == length y
-
 
 xmlns = Attr{
          attrKey= unqual "xmlns",
@@ -213,18 +242,16 @@ xmlnsgsx = Attr{
            attrVal = "http://schemas.google.com/spreadsheets/2006/extended"
           }
 
-
-
-makexmlrow :: Cell -> Element
-makexmlrow (key := v) = do
+cellToXml :: Cell -> Element
+cellToXml (key := v) = do
   let valstring = case v of
                     ST.String x -> T.unpack x
                     _ -> show v
   unode ("gsx:" ++ T.unpack key) valstring
 
 -- Create xml string from list of key value tuples used for insert method
-makexml :: Row -> String
-makexml rawRows = showElement $ add_attrs [xmlns, xmlnsgsx] $ unode "entry" $ map makexmlrow rawRows
+rowToXml :: Row -> String
+rowToXml row = showElement $ add_attrs [xmlns, xmlnsgsx] $ unode "entry" $ map cellToXml row
 
 
 -- Converts the Aeson Value of the sheet to list of rows.
@@ -276,9 +303,9 @@ parseEditURL json =
                       let extract = withObject "object" $ \ obj-> obj .: "href" :: Parser A.Value
                       extract editurlobj
 
+-- Takes spreadsheet key and worksheet id along with parameters to construct URL
 formURL :: String -> String-> [(String,String)] -> Maybe URL
 formURL key worksheetid params = do
- -- do concatenation to make url
  let template = T.pack urlTemplate
  let keyPattern = T.pack "${key}"
  let worksheetidPattern = T.pack "${worksheetid}"

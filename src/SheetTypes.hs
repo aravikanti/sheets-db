@@ -104,7 +104,6 @@ class (Typeable a, Show a, Eq a) => Val a where
     val :: a -> Value
     cast' :: Value -> Maybe a
 
-
 instance Val T.Text where
     val = String
     cast' (String x) = Just x
@@ -174,7 +173,6 @@ typeOfVal = fval typeOf
 data Sheet = Sheet {
                         key     :: String
                       , worksheetId :: String
-                      , url     :: String
                       , columns :: [ColName]
                       , cid  :: String
                       , csecret :: String
