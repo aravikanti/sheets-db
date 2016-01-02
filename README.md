@@ -1,2 +1,2 @@
-# Boxes
-A Haskell API to google Sheets 
+# sheets-db
+A Haskell API to google Sheets
