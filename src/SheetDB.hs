@@ -104,7 +104,8 @@ data Query = Query {
 data Order = Order {
   colname :: ColName,
   reverse :: Bool
-  } | NoOrder deriving (Show, Eq)
+  } | NoOrder -- Indicates no specific order is required
+  deriving (Show, Eq)
 
 
 query :: Selector -> Sheet -> Query
@@ -202,11 +203,9 @@ insert rawRow sheet =do
 
 update :: Sheet -> Row -> IO Outcome
 update sheet toRow = do
-  -- print "================================update Row==================================="
   puturl <- runMaybeT $ do
      jsonValueForm <- MaybeT $ getJson (T.unpack (at idKey toRow) ++ "?alt=json") (oauth sheet)
      MaybeT $ parseEditURL jsonValueForm
-  -- print "here in update Row"
   -- print puturl
   case puturl of
     Just purl -> do
