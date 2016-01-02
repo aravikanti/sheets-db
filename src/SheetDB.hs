@@ -211,10 +211,7 @@ update sheet toRow = do
     Just purl -> do
       let cols = idKey :  columns sheet
       if not (isEqualLength toRow cols && isvalid toRow cols)
-        then do
-          -- print  cols
-          -- print toRow
-          return SheetDB.Failure
+        then return SheetDB.Failure
         else do
           let xml = rowToXml toRow
           -- print xml
@@ -320,7 +317,7 @@ formPostURL :: String -> String -> String
 formPostURL key worksheetid = T.unpack $ T.replace (T.pack "${key}") (T.pack key) (T.pack urlTemplate)
 
 getJson url client = do
- print url
+ -- print url
  urlJSON <- get url client
  let jsonValueForm = A.decode urlJSON:: Maybe A.Value
  -- print jsonValueForm
