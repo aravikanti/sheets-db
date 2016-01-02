@@ -27,16 +27,15 @@ main = do
 
     case mySheet of
       Just sheet -> do
-         rows <- find (query
-                        ((p "type" ~< (2 :: Float)) ~||~ (p "category" ~= "meat" ) ) sheet)
+         rows <- find (Query (Select Empty sheet) 0 0 (Order (p "category") False))
          print rows
         --  status <- insert toInsert sheet
         --  print status
         --  return ()
-         case rows of
-           Just rs -> do
-             let upd = (p "id" =: (at (p "id") (last rs) :: T.Text)) : toInsert
-             status <- update sheet upd
-             print status
-           Nothing -> putStrLn "Nothing_there"
+        --  case rows of
+        --    Just rs -> do
+        --      let upd = (p "id" =: (at (p "id") (last rs) :: T.Text)) : toInsert
+        --      status <- update sheet upd
+        --      print status
+        --    Nothing -> putStrLn "Nothing_there"
       Nothing -> putStrLn "Nothing_here"

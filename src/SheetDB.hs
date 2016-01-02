@@ -10,9 +10,10 @@
 module SheetDB
   (
     access
-  , Selection(..),  Query(..), Order, query
+  , Selection(..),  Query(..), Order(..), query
   , find, remove, insert, update
   , Selector(..), (~>),(~>=), (~<=), (~<), (~=), (~&&~), (~||~)
+  , Outcome(..)
   ) where
 
 import           Control.Monad             (filterM)
@@ -30,6 +31,7 @@ import           Network.URL
 import           SheetTypes                as ST
 import           Text.XML.Light
 import           Text.XML.Light.Types
+import Data.Char (toLower)
 
 urlTemplate = "https://spreadsheets.google.com/feeds/list/${key}/${worksheetid}/private/full" :: String
 
@@ -93,9 +95,9 @@ data Selection = Select {selector :: Selector, sheet :: Sheet}  deriving (Show, 
 -- Use 'Select' to create a basic query with defaults, then modify if desired. For example, @(Select sel sheet) {limit = 10}@
 data Query = Query {
   selection :: Selection,
-  skip      :: Int,  -- ^ Number of initial matching documents to skip. Default = 0
-  limit     :: Int, -- ^ Maximum number of documents to return, 0 = no limit. Default = 0
-  sort      :: Order  -- ^ Sort results by this order, [] = no sort. Default = []
+  skip      :: Int,  -- Number of initial matching documents to skip. Default = 0
+  limit     :: Int, -- Maximum number of documents to return, 0 = no limit. Default = 0
+  sort      :: Order  -- Sort results by this order, NoOrder = no sort. Default = NoOrder
   } deriving (Show, Eq)
 
 
@@ -118,7 +120,7 @@ makeQueryUrl q = do
   let param2 = if  selectString == "" then  param1 else ("sq", selectString ) : param1
   let params = case order of
                 NoOrder -> param2
-                Order col rev -> param2 ++ [("orderby",T.unpack col),("reverse", show rev)]
+                Order col rev -> param2 ++ [("orderby","column:" ++ T.unpack col),("reverse", map toLower (show rev))]
   url <- formURL (key spreadsheet ) (worksheetId spreadsheet) params
   return $ exportURL url
 
@@ -188,7 +190,7 @@ insert rawRow sheet =do
       return SheetDB.Failure
     else do
       let xml = rowToXml rawRow
-      print xml
+      -- print xml
       let maybeurl = formURL ( key sheet) (worksheetId sheet) []
       case maybeurl of
         Just url ->do
@@ -205,14 +207,14 @@ update sheet toRow = do
      jsonValueForm <- MaybeT $ getJson (T.unpack (at idKey toRow) ++ "?alt=json") (oauth sheet)
      MaybeT $ parseEditURL jsonValueForm
   -- print "here in update Row"
-  print puturl
+  -- print puturl
   case puturl of
     Just purl -> do
       let cols = idKey :  columns sheet
       if not (isEqualLength toRow cols && isvalid toRow cols)
         then do
-          print  cols
-          print toRow
+          -- print  cols
+          -- print toRow
           return SheetDB.Failure
         else do
           let xml = rowToXml toRow
@@ -319,6 +321,7 @@ formPostURL :: String -> String -> String
 formPostURL key worksheetid = T.unpack $ T.replace (T.pack "${key}") (T.pack key) (T.pack urlTemplate)
 
 getJson url client = do
+ print url
  urlJSON <- get url client
  let jsonValueForm = A.decode urlJSON:: Maybe A.Value
  -- print jsonValueForm

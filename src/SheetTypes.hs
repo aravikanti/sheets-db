@@ -171,9 +171,9 @@ typeOfVal = fval typeOf
 
 
 data Sheet = Sheet {
-                        key     :: String
+                        key         :: String
                       , worksheetId :: String
-                      , columns :: [ColName]
-                      , cid  :: String
-                      , csecret :: String
+                      , columns     :: [ColName]
+                      , cid         :: String
+                      , csecret     :: String
                    } deriving (Show,Eq)
