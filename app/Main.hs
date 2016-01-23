@@ -30,6 +30,6 @@ main = do
 
     runAPI $ do
         sheet1 <- firstDocument
-        --rows <- find (Query (Select Empty sheet1) 0 0 (Order (p "category") False))
-        insert toInsert sheet1
-        --io (mapM_ print rows)
+        rows <- find (Query (Select everyting sheet1) 0 0 (Order (p "category") False))
+        -- insert toInsert sheet1
+        io (mapM_ print rows)

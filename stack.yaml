@@ -1,10 +1,11 @@
 flags: {}
 packages:
 - '.'
-- '../google-oauth2'
-- '../hs-gchart'
+# - '../google-oauth2'
+# - '../hs-gchart'
 extra-deps:
-- open-browser-0.2.0.0
+# - open-browser-0.2.0.0
+- google-oauth2-0.2.0
 resolver: lts-3.4
 ghc-options:
   "*": -XFlexibleContexts

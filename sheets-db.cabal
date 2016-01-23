@@ -38,13 +38,13 @@ library
 
 executable boxes-exe
   hs-source-dirs:      app
-  main-is:             plot.hs
+  main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   other-extensions:    FlexibleContexts
   build-depends:       base
                       , text
-                      , hs-gchart
-                      , open-browser
+                      -- , hs-gchart
+                      -- , open-browser
                       , sheets-db
   default-language:    Haskell2010
 
