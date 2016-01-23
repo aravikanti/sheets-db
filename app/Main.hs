@@ -4,8 +4,7 @@ module Main where
 
 
 import qualified Data.Text  as T
-import           SheetDB
-import           SheetTypes
+import           GoogleSheet
 -- import           Data.Scientific
 
 -- clientid = "1086783968140-bupmbbqo8chsm2tej5ldgfci496a1lvr.apps.googleusercontent.com"
@@ -17,25 +16,20 @@ clientsecret ="wRktcD6xif1_z6Xv-RhCatBB"
 
 
 toInsert :: Row
-toInsert= [p "name"        =:  "papaya",
-     p "category"    =:  "fruit",
-     p "healthiness" =:  "adequate",
+toInsert =
+    [p "name"        =:  ("papaya" :: String),
+     p "category"    =:  ("fruit" :: String),
+     p "healthiness" =:  ("adequate" :: String),
      p "type"        =:  (3 :: Float)]
 
 main = do
-    mySheet <- access "1hIEq4AAauzI8INelQRIvgxBhmzX44qAB_1QQpFJQ2Xo" "od6" clientid clientsecret
+    let key = "1hIEq4AAauzI8INelQRIvgxBhmzX44qAB_1QQpFJQ2Xo"
+    let doc = "od6"
 
-    case mySheet of
-      Just sheet -> do
-         rows <- find (Query (Select Empty sheet) 0 0 (Order (p "category") False))
-         print rows
-        --  status <- insert toInsert sheet
-        --  print status
-        --  return ()
-        --  case rows of
-        --    Just rs -> do
-        --      let upd = (p "id" =: (at (p "id") (last rs) :: T.Text)) : toInsert
-        --      status <- update sheet upd
-        --      print status
-        --    Nothing -> putStrLn "Nothing_there"
-      Nothing -> putStrLn "Nothing_here"
+    let firstDocument = access key doc clientid clientsecret
+
+    runAPI $ do
+        sheet1 <- firstDocument
+        --rows <- find (Query (Select Empty sheet1) 0 0 (Order (p "category") False))
+        insert toInsert sheet1
+        --io (mapM_ print rows)

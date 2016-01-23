@@ -1,85 +1,54 @@
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+
 module GoogleRequest
-  (
-      get
-    , delete
-    , post
-    , put
-  )where
+  ( get
+  , delete
+  , post
+  , put
+  , io
+  ) where
 
-import Network.HTTP.Conduit
-import Network.HTTP.Types (hAuthorization)
-import Network.Google.OAuth2
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as L
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Resource (runResourceT)
+import qualified Data.ByteString.Char8        as B8
+import qualified Data.ByteString.Builder      as B
+import qualified Data.ByteString.Lazy         as L
 
+import           Network.HTTP.Conduit
+import           Network.HTTP.Types           (hAuthorization, Status, Method)
+import           Network.Google.OAuth2
 
+import           API
 
-scopes = ["https://spreadsheets.google.com/feeds"]
+get :: Token -> URL -> API L.ByteString
+get token url = do
+    request <- parseUrl url
+    result  <- runAuthorized token request
+    return (responseBody result)
 
-createToken client = getAccessToken client scopes (Just "./key.txt")
+delete :: Token -> URL -> API Status
+delete token url = do
+    request <- parseUrl url
+    result  <- runAuthorized token request { method = "DELETE" }
+    return (responseStatus result)
 
-authorize token request = request
-      { requestHeaders = [(hAuthorization, B8.pack $ "Bearer " ++ token)] }
+post, put :: Token -> URL -> String -> API Status
+post = send "POST"
+put  = send "PUT"
 
-get :: String -> OAuth2Client -> IO L.ByteString
-get url client= runResourceT $ do
-  token <- liftIO $ createToken client
-  request <- parseUrl url
-  manager <- liftIO $ newManager tlsManagerSettings
-  res <- httpLbs (authorize token request) manager
-  -- print res
-  return $ responseBody res
+send :: Method -> Token -> URL -> String -> API Status
+send method token url data_ = do
+    request <- parseUrl url
 
-delete url client = runResourceT $ do
-  token <- liftIO $ createToken client
-  request <- parseUrl url
-  let delReq = request{
-                  method = "DELETE"
-                }
-  manager <- liftIO $ newManager tlsManagerSettings
-  res <- httpLbs (authorize token delReq) manager
-  return $ responseStatus  res
+    let packedData = B.toLazyByteString (B.stringUtf8 data_)
 
-post url client postData = runResourceT $ do
-  token <- liftIO $ createToken client
-  request <- parseUrl url
-  let pd = B.toLazyByteString $ B.stringUtf8 postData
-  -- print pd
-  -- print url
-  let req = request{
-                    method = "POST"
-                  , requestHeaders = [("content-type", "application/atom+xml"),
-                                      ("Gdata-version", "1.0"),
-                                      (hAuthorization, B8.pack $ "Bearer " ++ token)]
-                  , requestBody = RequestBodyLBS pd
-                  }
-  -- print req
-  manager <- liftIO $ newManager tlsManagerSettings
-  res <- httpLbs req manager
-  -- print  res
-  return $ responseStatus  res
+    result <- runAuthorized token request
+      { method = method
+      , requestHeaders = 
+          [ ("content-type" , "application/atom+xml")
+          , ("Gdata-version", "1.0")
+          ]
+      , requestBody = RequestBodyLBS packedData
+      }
 
-
-put url client postData = runResourceT $ do
-  token <- liftIO $ createToken client
-  request <- parseUrl url
-  let pd = B.toLazyByteString $ B.stringUtf8 postData
-  -- print pd
-  -- print url
-  let req = request{
-                    method = "PUT"
-                  , requestHeaders = [("content-type", "application/atom+xml"),
-                                      ("Gdata-version", "1.0"),
-                                      (hAuthorization, B8.pack $ "Bearer " ++ token)]
-                  , requestBody = RequestBodyLBS pd
-                  }
-  -- print req
-  manager <- liftIO $ newManager tlsManagerSettings
-  res <- httpLbs req manager
-  -- print  res
-  return $ responseStatus  res
+    return (responseStatus result)
